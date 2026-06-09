@@ -1,7 +1,7 @@
 /**
  * Lampa Plugin — AprelKino
- * Версия: 5.2.1
- * Исправлено: регистрация и отображение в интерфейсе
+ * Версия: 5.2.2
+ * Исправлено: корректная регистрация и отображение кнопки в интерфейсе
  */
 
 (function () {
@@ -225,50 +225,38 @@
       type: 'online',
       component: COMP_NAME,
       name: PLUGIN_TITLE,
-      version: '5.2.1',
-      description: 'AprelKino с отладкой'
+      version: '5.2.2',
+      description: 'AprelKino с исправленной регистрацией'
     };
 
-    function register() {
-      if (!Lampa || !Lampa.Component) {
-        console.warn('[AprelKino] Lampa ещё не загружена, повтор через 300ms');
-        setTimeout(register, 300);
-        return;
-      }
+    // Добавляем компонент
+    Lampa.Component.add(COMP_NAME, AprelComponent);
 
-      // Добавляем компонент
-      Lampa.Component.add(COMP_NAME, AprelComponent);
+    // Добавляем в манифест
+    if (!Lampa.Manifest.plugins) Lampa.Manifest.plugins = [];
+    if (!Array.isArray(Lampa.Manifest.plugins)) Lampa.Manifest.plugins = [Lampa.Manifest.plugins];
 
-      // Добавляем в манифест
-      if (!Lampa.Manifest.plugins) Lampa.Manifest.plugins = [];
-      if (!Array.isArray(Lampa.Manifest.plugins)) Lampa.Manifest.plugins = [Lampa.Manifest.plugins];
+    var already = Lampa.Manifest.plugins.some(p => p.component === COMP_NAME);
+    if (!already) {
+      Lampa.Manifest.plugins.push(manifest);
+      console.log('[AprelKino] Плагин зарегистрирован в манифесте');
 
-      var already = Lampa.Manifest.plugins.some(p => p.component === COMP_NAME);
-      if (!already) {
-        Lampa.Manifest.plugins.push(manifest);
-        console.log('[AprelKino] Плагин зарегистрирован в манифесте');
-
-        // Принудительно обновляем интерфейс источников
-        if (Lampa.Source && Lampa.Source.update) Lampa.Source.update();
-        if (Lampa.Listener && Lampa.Listener.trigger) Lampa.Listener.trigger('source', { type: 'update' });
-      } else {
-        console.log('[AprelKino] Плагин уже был зарегистрирован');
-      }
-    }
-
-    // Ждём готовности Lampa
-    if (window.appready || (Lampa && Lampa.Component)) {
-      register();
+      // Принудительно обновляем интерфейс источников
+      if (Lampa.Source && Lampa.Source.update) Lampa.Source.update();
+      if (Lampa.Listener && Lampa.Listener.trigger) Lampa.Listener.trigger('source', { type: 'update' });
     } else {
-      Lampa.Listener.follow('app', function(e) {
-        if (e.type === 'ready') register();
-      });
+      console.log('[AprelKino] Плагин уже был зарегистрирован');
     }
-
-    console.log('[AprelKino] v5.2.1 загружен — выберите AprelKino в списке онлайн-плееров');
   }
 
-  // Стартуем
-  if (window.appready) startPlugin();
-  else Lampa.Listener.follow('app', e => { if (e.type === 'ready') startPlugin(); });
+  // Ждём готовности Lampa
+  if (window.appready) {
+    startPlugin();
+  } else {
+    Lampa.Listener.follow('app', e => {
+      if (e.type === 'ready') startPlugin();
+    });
+  }
+
+  console.log('[AprelKino] v5.2.2 загружен — выберите AprelKino в списке онлайн-плееров');
 })();
