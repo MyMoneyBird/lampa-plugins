@@ -1,6 +1,6 @@
 /**
  * Lampa Plugin — AprelKino
- * Версия: 5.1.0
+ * Версия: 5.1.1
  */
 
 (function () {
@@ -21,17 +21,16 @@
     return c.v;
   }
 
-  // ─── Новый парсинг через matrix/search.php ─────
+  // ─── Новый поиск через matrix ───────────────────
   function parseMatrixSearch(html) {
     var out = [];
-    // Ищем ссылки вида https://aprelteam.gokino.by/team/XXXX-...
-    var re = /https:\/\/aprelteam\.gokino\.by\/team\/(\d+)-[^"\s)]+/gi;
+    var re = /https:\/\/aprelteam\.gokino\.by\/team\/(\d+)-[^"\s'<>)]+/gi;
     var seen = {};
     var m;
-    while ((m = re.exec(html)) !== null && out.length < 5) {
+    while ((m = re.exec(html)) !== null && out.length < 6) {
       if (seen[m[1]]) continue;
       seen[m[1]] = 1;
-      out.push(BASE + '/team/' + m[1] + '-aprel-1998.html'); // пример slug
+      out.push(BASE + '/team/' + m[1] + '-aprel-1998.html');
     }
     return out;
   }
@@ -69,31 +68,26 @@
   // ════════════════════════════════════════════════
   //  КОМПОНЕНТ
   // ════════════════════════════════════════════════
-
   function AprelComponent(object) {
-    var self    = this;
+    var self = this;
     var network = new Lampa.Reguest();
-    var active  = true;
-    var html    = Lampa.Template.get('lampac_content_loading', {}, true);
+    var active = true;
+    var html = Lampa.Template.get('lampac_content_loading', {}, true);
 
     this.start = function () {
       self.activity.loader(true);
 
-      var movie   = object.movie || {};
-      var title   = object.search || object.search_one || movie.title || movie.name || '';
+      var movie = object.movie || {};
+      var title = object.search || object.search_one || movie.title || movie.name || '';
       var origTitle = object.search_two || movie.original_title || movie.original_name || '';
-      var kpId    = movie.kinopoisk_id || (movie.external_ids && movie.external_ids.kinopoisk) || null;
-      var season  = object.s || null;
+      var kpId = movie.kinopoisk_id || (movie.external_ids && movie.external_ids.kinopoisk) || null;
+      var season = object.s || null;
       var episode = object.e || null;
 
       function done(iframeUrl) {
         if (!active) return;
         self.activity.loader(false);
-
-        if (!iframeUrl) {
-          self.empty();
-          return;
-        }
+        if (!iframeUrl) return self.empty();
 
         var streams = [];
         if (season) {
@@ -105,11 +99,11 @@
         }
 
         var scroll = new Lampa.Scroll({ horizontal: false });
-        var files  = new Lampa.Files(scroll.render(true));
+        var files = new Lampa.Files(scroll.render(true));
 
-        streams.forEach(function (s) {
+        streams.forEach(s => {
           var item = files.add({ title: s.title, quality: s.quality, view: 0 });
-          item.on('hover:enter', function () {
+          item.on('hover:enter', () => {
             Lampa.Player.play({ url: s.url, title: PLUGIN_TITLE + ' — ' + s.title });
             Lampa.Player.playlist([{ url: s.url, title: s.title }]);
           });
@@ -127,13 +121,13 @@
 
       function loadPage(pageUrl) {
         var ck = cacheGet('pg_' + pageUrl);
-        if (ck !== null) { done(ck || null); return; }
+        if (ck !== null) return done(ck || null);
 
-        network.timeout(10000);
-        network.native(pageUrl, function (pageHtml) {
+        network.timeout(12000);
+        network.native(pageUrl, pageHtml => {
           if (!active) return;
           var iframe = findIframe(pageHtml);
-          var kp     = findKpId(pageHtml);
+          var kp = findKpId(pageHtml);
           if (!iframe && kp) iframe = 'https://hdvb.ru/embed/' + kp;
           iframe = fixProto(iframe);
           cacheSet('pg_' + pageUrl, iframe || false);
@@ -142,48 +136,32 @@
       }
 
       function matrixSearch(q) {
+        if (!q) return fail();
         var url = SEARCH_BASE + '?q=' + encodeURIComponent(q);
         var ck = cacheGet('m_' + q);
-        if (ck !== null) {
-          if (ck && ck.length) loadPage(ck[0]);
-          else fail();
-          return;
-        }
+        if (ck !== null) return ck && ck.length ? loadPage(ck[0]) : fail();
 
-        network.timeout(10000);
-        network.native(url, function (html) {
+        network.timeout(12000);
+        network.native(url, html => {
           if (!active) return;
           var links = parseMatrixSearch(html);
-          if (links.length) {
-            cacheSet('m_' + q, links);
-            loadPage(links[0]);
-          } else {
-            cacheSet('m_' + q, []);
-            fail();
-          }
+          cacheSet('m_' + q, links);
+          links.length ? loadPage(links[0]) : fail();
         }, fail, false);
       }
 
-      // Попытка по KP ID → matrix search
+      // Основная логика
       if (kpId) {
         var kpUrl = BASE + '/xfsearch/kinopoisk_id/' + kpId + '/';
-        var kpCk = cacheGet('kp_' + kpId);
-        if (kpCk !== null) {
-          if (kpCk) loadPage(kpCk);
-          else matrixSearch(title || origTitle);
-        } else {
-          network.native(kpUrl, function (html3) {
-            var cards = parseMatrixSearch(html3); // можно оставить старый parseCards, но matrix лучше
-            if (cards.length) {
-              var pu = cards[0];
-              cacheSet('kp_' + kpId, pu);
-              loadPage(pu);
-            } else {
-              cacheSet('kp_' + kpId, false);
-              matrixSearch(title || origTitle);
-            }
-          }, function () { matrixSearch(title || origTitle); }, false);
-        }
+        network.native(kpUrl, html3 => {
+          var links = parseMatrixSearch(html3);
+          if (links.length) {
+            cacheSet('kp_' + kpId, links[0]);
+            loadPage(links[0]);
+          } else {
+            matrixSearch(title || origTitle);
+          }
+        }, () => matrixSearch(title || origTitle), false);
       } else {
         matrixSearch(title || origTitle);
       }
@@ -192,46 +170,93 @@
     };
 
     this.empty = function () {
-      html.empty().append('<div class="empty"><div class="empty__title">' + PLUGIN_TITLE + ': не найдено</div></div>');
+      html.empty().append(`<div class="empty"><div class="empty__title">${PLUGIN_TITLE}: не найдено</div></div>`);
       self.activity.loader(false);
       self.activity.toggle();
     };
 
-    this.render  = function () { return html; };
-    this.pause   = function () {};
-    this.resume  = function () {};
-    this.stop    = function () { active = false; network.clear(); };
-    this.destroy = function () { active = false; network.clear(); html.remove(); };
+    this.render = () => html;
+    this.pause = () => {};
+    this.resume = () => {};
+    this.stop = () => { active = false; network.clear(); };
+    this.destroy = () => { active = false; network.clear(); html.remove(); };
   }
 
-  // Запуск плагина (без изменений)
+  // ════════════════════════════════════════════════
+  //  ЗАПУСК ПЛАГИНА
+  // ════════════════════════════════════════════════
   function startPlugin() {
     Lampa.Component.add(COMP_NAME, AprelComponent);
 
-    var manifst = {
+    var manifest = {
       type: 'online',
       component: COMP_NAME,
       name: PLUGIN_TITLE,
-      version: '5.1.0',
+      version: '5.1.1',
       description: 'Онлайн-просмотр через AprelKino (FHD без рекламы)'
     };
 
-    function registerManifest() {
+    function register() {
       Lampa.Component.add(COMP_NAME, AprelComponent);
-      var plugins = Lampa.Manifest.plugins || [];
-      if (!Array.isArray(plugins)) plugins = plugins ? [plugins] : [];
-      if (!plugins.some(p => p && p.component === COMP_NAME)) {
-        plugins.push(manifst);
+      if (!Lampa.Manifest.plugins) Lampa.Manifest.plugins = [];
+      if (!Array.isArray(Lampa.Manifest.plugins)) Lampa.Manifest.plugins = [Lampa.Manifest.plugins];
+
+      if (!Lampa.Manifest.plugins.some(p => p.component === COMP_NAME)) {
+        Lampa.Manifest.plugins.push(manifest);
       }
-      Lampa.Manifest.plugins = plugins;
     }
 
-    registerManifest();
-    Lampa.Listener.follow('app', e => { if (e.type === 'ready') setTimeout(registerManifest, 0); });
-    setTimeout(registerManifest, 1000);
+    register();
+    Lampa.Listener.follow('app', e => { if (e.type === 'ready') setTimeout(register, 500); });
+    setTimeout(register, 1500);
 
-    // ... (кнопка и остальной код запуска без изменений)
-    console.log('[AprelKino] v5.1.0 ready');
+    // Кнопка на странице фильма
+    var btnHtml = `<div class="full-start__button selector view--online aprelkino-btn" data-subtitle="FHD без рекламы">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+        <path d="M8 5v14l11-7z"/>
+      </svg>
+      <span>${PLUGIN_TITLE}</span>
+    </div>`;
+
+    function addButton(container, movie) {
+      if (!container || !container.length || container.find('.aprelkino-btn').length) return;
+
+      var btn = $(btnHtml);
+      btn.on('hover:enter', () => {
+        Lampa.Activity.push({
+          component: COMP_NAME,
+          title: PLUGIN_TITLE,
+          search: movie.title || movie.name || '',
+          search_one: movie.title || movie.name || '',
+          search_two: movie.original_title || movie.original_name || '',
+          movie: movie
+        });
+      });
+
+      container.after(btn);
+    }
+
+    // Надёжная подписка на кнопку
+    Lampa.Listener.follow('full', e => {
+      if (e.type === 'complite' && e.object?.activity) {
+        setTimeout(() => {
+          var container = e.object.activity.render().find('.view--torrent');
+          if (container.length) addButton(container, e.data?.movie || e.object.card);
+        }, 300);
+      }
+    });
+
+    // Попытка добавить кнопку сразу, если уже открыт фильм
+    setTimeout(() => {
+      try {
+        if (Lampa.Activity.active()?.component === 'full') {
+          var cont = Lampa.Activity.active().activity.render().find('.view--torrent');
+          if (cont.length) addButton(cont, Lampa.Activity.active().card);
+        }
+      } catch (e) {}
+    }, 800);
+
+    console.log('[AprelKino] v5.1.1 успешно загружен');
   }
 
   if (window.appready) startPlugin();
