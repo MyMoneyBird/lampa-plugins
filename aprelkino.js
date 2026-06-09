@@ -1,7 +1,7 @@
 /**
  * Lampa Plugin — AprelKino
  * Версия: 5.2.1
- * Добавлены логи для отладки
+ * Исправлено: регистрация и отображение в интерфейсе
  */
 
 (function () {
@@ -78,7 +78,6 @@
   }
 
   function findKpId(html) {
-    // ... (оставляем как было)
     var pp = [/kinopoisk[_-]id['":\s=]+(\d+)/i, /data-kp=["'](\d+)["']/i, /kinopoisk\.ru\/(?:film|series)\/(\d+)/i];
     for (var i = 0; i < pp.length; i++) {
       var m = html.match(pp[i]);
@@ -91,12 +90,28 @@
     return url && url.indexOf('//') === 0 ? 'https:' + url : url;
   }
 
+  function withEp(url, s, e) {
+    if (!s) return url;
+    return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'season=' + s + '&episode=' + (e || 1);
+  }
+
   // ====================== КОМПОНЕНТ ======================
   function AprelComponent(object) {
     var self = this;
     var network = new Lampa.Reguest();
     var active = true;
     var html = Lampa.Template.get('lampac_content_loading', {}, true);
+
+    // ----- метод match для отображения в интерфейсе -----
+    this.match = function(object, callback) {
+      var movie = object.movie || {};
+      var title = (object.search || object.search_one || movie.title || movie.name || '').trim();
+      var origTitle = (object.search_two || movie.original_title || movie.original_name || '').trim();
+      var hasQuery = !!(title || origTitle);
+      console.log('[AprelKino] match() ->', hasQuery);
+      callback(hasQuery);
+    };
+    // ----------------------------------------------------
 
     this.start = function () {
       console.log('[AprelKino] start() called with object:', object);
@@ -115,7 +130,6 @@
         self.activity.loader(false);
         if (!iframeUrl) return self.empty();
 
-        // ... (список streams без изменений)
         var streams = [{ title: 'FHD 1080p', url: iframeUrl, quality: '1080p' }];
         if (object.s) {
           var ep = object.e || 1;
@@ -205,32 +219,56 @@
     this.destroy = () => { active = false; network.clear(); html.remove(); };
   }
 
-  // ====================== ЗАПУСК ======================
+  // ====================== РЕГИСТРАЦИЯ ======================
   function startPlugin() {
-    Lampa.Component.add(COMP_NAME, AprelComponent);
-
-    var manifest = { type: 'online', component: COMP_NAME, name: PLUGIN_TITLE, version: '5.2.0', description: 'AprelKino с отладкой' };
+    var manifest = {
+      type: 'online',
+      component: COMP_NAME,
+      name: PLUGIN_TITLE,
+      version: '5.2.1',
+      description: 'AprelKino с отладкой'
+    };
 
     function register() {
+      if (!Lampa || !Lampa.Component) {
+        console.warn('[AprelKino] Lampa ещё не загружена, повтор через 300ms');
+        setTimeout(register, 300);
+        return;
+      }
+
+      // Добавляем компонент
       Lampa.Component.add(COMP_NAME, AprelComponent);
+
+      // Добавляем в манифест
       if (!Lampa.Manifest.plugins) Lampa.Manifest.plugins = [];
       if (!Array.isArray(Lampa.Manifest.plugins)) Lampa.Manifest.plugins = [Lampa.Manifest.plugins];
-      if (!Lampa.Manifest.plugins.some(p => p.component === COMP_NAME)) {
+
+      var already = Lampa.Manifest.plugins.some(p => p.component === COMP_NAME);
+      if (!already) {
         Lampa.Manifest.plugins.push(manifest);
+        console.log('[AprelKino] Плагин зарегистрирован в манифесте');
+
+        // Принудительно обновляем интерфейс источников
+        if (Lampa.Source && Lampa.Source.update) Lampa.Source.update();
+        if (Lampa.Listener && Lampa.Listener.trigger) Lampa.Listener.trigger('source', { type: 'update' });
+      } else {
+        console.log('[AprelKino] Плагин уже был зарегистрирован');
       }
     }
 
-    register();
-    Lampa.Listener.follow('app', e => { if (e.type === 'ready') setTimeout(register, 300); });
+    // Ждём готовности Lampa
+    if (window.appready || (Lampa && Lampa.Component)) {
+      register();
+    } else {
+      Lampa.Listener.follow('app', function(e) {
+        if (e.type === 'ready') register();
+      });
+    }
 
-    console.log('[AprelKino] v5.2.0 загружен — смотри логи в консоли браузера');
+    console.log('[AprelKino] v5.2.1 загружен — выберите AprelKino в списке онлайн-плееров');
   }
 
+  // Стартуем
   if (window.appready) startPlugin();
   else Lampa.Listener.follow('app', e => { if (e.type === 'ready') startPlugin(); });
-
-  function withEp(url, s, e) {
-    if (!s) return url;
-    return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'season=' + s + '&episode=' + (e || 1);
-  }
 })();
